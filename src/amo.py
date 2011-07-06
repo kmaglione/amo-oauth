@@ -92,7 +92,7 @@ class AMOOAuth:
             password = raw_input('Enter password: ')
 
         csrf = self.get_csrf(res.read())
-        data = urllib2.urlencode({'username':username,
+        data = urllib.urlencode({'username':username,
                                  'password':password,
                                  'csrfmiddlewaretoken':csrf})
         res = opener.open(self.url('login'), data)
@@ -141,7 +141,7 @@ class AMOOAuth:
                     oauth_timestamp=int(time.time()),
                     oauth_version='1.0')
 
-    def get_user(self):
+    def _get(self, url):
         method = 'GET'
         signature_method_hmac_sha1 = oauth.SignatureMethod_HMAC_SHA1()
         conn = httplib.HTTPConnection("%s:%d" % (self.domain, self.port))
@@ -153,6 +153,9 @@ class AMOOAuth:
         conn.request(method, self.shorten(req.to_url()))
         response = conn.getresponse()
         return json.loads(response.read())
+
+    def get_user(self):
+        return self._get(self.url('user'))
 
 
 if __name__=='__main__':
