@@ -7,6 +7,7 @@ import urllib
 import urllib2
 from urlparse import urlparse, urlunparse, parse_qsl
 import httplib
+import httplib2
 import oauth2 as oauth
 import os
 import re
@@ -29,18 +30,28 @@ urls = {
 storage_file = os.path.join(os.path.expanduser('~'), '.amo-oauth')
 boundary = mimetools.choose_boundary()
 
+old = httplib2.Http.__init__
+
+# Ouch, I'll go to hell for this.
+def hack(self, **kw):
+    kw['disable_ssl_certificate_validation'] = True
+    return old(self, **kw)
+
+httplib2.Http.__init__ = hack
+
 
 class AMOOAuth:
     """
     A base class to authenticate and work with AMO OAuth.
     """
 
-    def __init__(self, domain="addons.mozilla.org", protocol='https',
-                 port=443):
+    def __init__(self, domain='addons.mozilla.org', protocol='https',
+                 port=443, prefix=''):
         self.data = self.read_storage()
         self.domain = domain
         self.protocol = protocol
         self.port = port
+        self.prefix = prefix
 
     def set_consumer(self, consumer_key, consumer_secret):
         self.data['consumer_key'] = consumer_key
@@ -68,7 +79,8 @@ class AMOOAuth:
 
     def url(self, key):
         return urlunparse((self.protocol, '%s:%s' % (self.domain, self.port),
-                           '/en-US/firefox%s' % urls[key], '', '', ''))
+                           '%s/en-US/firefox%s' % (self.prefix, urls[key]),
+                           '', '', ''))
 
     def shorten(self, url):
         return urlunparse(['', ''] + list(urlparse(url)[2:]))
@@ -92,6 +104,7 @@ class AMOOAuth:
         opener = urllib2.build_opener(urllib2.HTTPCookieProcessor())
         urllib2.install_opener(opener)
         res = opener.open(self.url('login'))
+        assert res.code == 200
 
         # get the CSRF middleware token
         if password is None:
@@ -102,12 +115,14 @@ class AMOOAuth:
                                  'password': password,
                                  'csrfmiddlewaretoken': csrf})
         res = opener.open(self.url('login'), data)
+        assert res.code == 200
 
         # We need these headers to be able to post to the authorize method
-        cookies = []
+        headers = {}
+        # Need to find a better way to find the handler, -2 is fragile.
         for cookie in opener.handlers[-2].cookiejar:
-            cookies.append("%s=%s" % (cookie.name, cookie.value))
-        headers = {'Cookie': ', '.join(cookies)}
+            if cookie.name == 'sessionid':
+                headers = {'Cookie': '%s=%s' % (cookie.name, cookie.value)}
         # Step 1 completed, we can now be logged in for any future requests
 
         # Step 2, get a request token.
@@ -116,6 +131,7 @@ class AMOOAuth:
         assert resp.status == 200, 'Status was: %s' % resp.status
 
         request_token = dict(parse_qsl(content))
+        assert request_token
         token = oauth.Token(request_token['oauth_token'],
                             request_token['oauth_token_secret'])
 
@@ -148,7 +164,11 @@ class AMOOAuth:
                     oauth_version='1.0')
 
     def _send(self, url, method, data):
-        conn = httplib.HTTPConnection("%s:%d" % (self.domain, self.port))
+        if self.protocol == 'https':
+            conn_class = httplib.HTTPSConnection
+        else:
+            conn_class = httplib.HTTPConnection
+        conn = conn_class('%s:%d' % (self.domain, self.port))
 
         req = oauth.Request(method=method, url=url,
                             parameters=self.get_params())
@@ -162,7 +182,9 @@ class AMOOAuth:
         conn.request(method, self.shorten(url), body=post_data,
                      headers=headers)
         response = conn.getresponse()
-        return json.loads(response.read())
+        content = response.read()
+        assert 'Register' not in content, 'Authentication failed'
+        return json.loads(content)
 
     def get_user(self):
         return self._send(self.url('user'), 'GET', {})
