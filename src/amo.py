@@ -12,6 +12,9 @@ import os
 import re
 import time
 import json
+import mimetools
+
+from utils import encode_multipart
 
 # AMO Specific end points
 urls = {
@@ -20,9 +23,11 @@ urls = {
     'access_token': '/oauth/access_token/',
     'authorize': '/oauth/authorize/',
     'user': '/api/2/user/',
+    'addon': '/api/2/addons/',
 }
 
 storage_file = os.path.join(os.path.expanduser('~'), '.amo-oauth')
+boundary = mimetools.choose_boundary()
 
 
 class AMOOAuth:
@@ -30,7 +35,8 @@ class AMOOAuth:
     A base class to authenticate and work with AMO OAuth.
     """
 
-    def __init__(self, domain="addons.mozilla.org", protocol='https', port=443):
+    def __init__(self, domain="addons.mozilla.org", protocol='https',
+                 port=443):
         self.data = self.read_storage()
         self.domain = domain
         self.protocol = protocol
@@ -92,16 +98,16 @@ class AMOOAuth:
             password = raw_input('Enter password: ')
 
         csrf = self.get_csrf(res.read())
-        data = urllib.urlencode({'username':username,
-                                 'password':password,
-                                 'csrfmiddlewaretoken':csrf})
+        data = urllib.urlencode({'username': username,
+                                 'password': password,
+                                 'csrfmiddlewaretoken': csrf})
         res = opener.open(self.url('login'), data)
 
         # We need these headers to be able to post to the authorize method
         cookies = []
         for cookie in opener.handlers[-2].cookiejar:
             cookies.append("%s=%s" % (cookie.name, cookie.value))
-        headers = {'Cookie':', '.join(cookies)}
+        headers = {'Cookie': ', '.join(cookies)}
         # Step 1 completed, we can now be logged in for any future requests
 
         # Step 2, get a request token.
@@ -119,7 +125,7 @@ class AMOOAuth:
                                        headers=headers)
 
         csrf = self.get_csrf(content)
-        data = urllib.urlencode({'authorize_access':True,
+        data = urllib.urlencode({'authorize_access': True,
                                  'csrfmiddlewaretoken': csrf})
         resp, content = client.request(self.url('authorize'), "POST",
                                        body=data, headers=headers)
@@ -141,24 +147,35 @@ class AMOOAuth:
                     oauth_timestamp=int(time.time()),
                     oauth_version='1.0')
 
-    def _get(self, url):
-        method = 'GET'
-        signature_method_hmac_sha1 = oauth.SignatureMethod_HMAC_SHA1()
+    def _send(self, url, method, data):
         conn = httplib.HTTPConnection("%s:%d" % (self.domain, self.port))
-        req = oauth.Request.from_consumer_and_token(self.get_consumer(),
-                                token=self.get_access(), http_method=method,
-                                http_url=self.url('user'))
-        req.sign_request(signature_method_hmac_sha1, self.get_consumer(),
-                         self.get_access())
-        conn.request(method, self.shorten(req.to_url()))
+
+        req = oauth.Request(method=method, url=url,
+                            parameters=self.get_params())
+        req.sign_request(oauth.SignatureMethod_HMAC_SHA1(),
+                         self.get_consumer(), self.get_access())
+
+        post_data = encode_multipart(boundary, data)
+        headers = req.to_header()
+        headers.update({'Content-Type':
+                        'multipart/form-data; boundary=%s' % boundary})
+        conn.request(method, self.shorten(url), body=post_data,
+                     headers=headers)
         response = conn.getresponse()
         return json.loads(response.read())
 
     def get_user(self):
-        return self._get(self.url('user'))
+        return self._send(self.url('user'), 'GET', {})
+
+    def create_addon(self, data):
+        # example:
+        # data = {'id': 'sdefsfd', 'name':'sdfsdf', 'text':'sdfsdf',
+        #         'eula':'sdfsdfsdf', 'builtin':0, 'guid': 'sdfsdfsdf',
+        #         'xpi': somexpi}
+        return self._send(self.url('addon'), 'POST', data)
 
 
-if __name__=='__main__':
+if __name__ == '__main__':
     username = 'amckay@mozilla.com'
     amo = AMOOAuth(domain="addons.mozilla.local", port=8000, protocol='http')
     if not amo.has_access_token():
@@ -166,4 +183,4 @@ if __name__=='__main__':
         amo.set_consumer(consumer_key='CmAn9KhXR8SD3xUSrf',
                          consumer_secret='4hPsAW9yCecr4KRSR4DVKanCkgpqDETm')
         amo.authenticate(username=username)
-    assert amo.get_user()['email'] == username
+    print amo.get_user()
