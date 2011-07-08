@@ -15,7 +15,7 @@ import time
 import json
 import mimetools
 
-from utils import encode_multipart
+from utils import encode_multipart, data_keys
 
 # AMO Specific end points
 urls = {
@@ -44,14 +44,16 @@ class AMOOAuth:
     """
     A base class to authenticate and work with AMO OAuth.
     """
+    signature_method = oauth.SignatureMethod_HMAC_SHA1()
 
     def __init__(self, domain='addons.mozilla.org', protocol='https',
-                 port=443, prefix=''):
+                 port=443, prefix='', three_legged=False):
         self.data = self.read_storage()
         self.domain = domain
         self.protocol = protocol
         self.port = port
         self.prefix = prefix
+        self.three_legged = three_legged
 
     def set_consumer(self, consumer_key, consumer_secret):
         self.data['consumer_key'] = consumer_key
@@ -67,7 +69,7 @@ class AMOOAuth:
                            self.data['access_token']['oauth_token_secret'])
 
     def has_access_token(self):
-        return 'access_token' in self.data
+        return not self.three_legged or 'access_token' in self.data
 
     def read_storage(self):
         if os.path.exists(storage_file):
@@ -92,8 +94,27 @@ class AMOOAuth:
         return re.search("name='csrfmiddlewaretoken' value='(.*?)'",
                          content).groups()[0]
 
+    def _request(self, token, method, url, data={}, headers={}, **kw):
+        parameters = data_keys(data)
+        parameters.update(kw)
+        request = (oauth.Request
+                        .from_consumer_and_token(self.get_consumer(), token,
+                                                 method, url, parameters))
+        request.sign_request(self.signature_method, self.get_consumer(), token)
+        client = httplib2.Http()
+        headers.update(request.to_header())
+        if data and method == 'POST':
+            data = encode_multipart(boundary, data)
+            headers.update({'Content-Type':
+                            'multipart/form-data; boundary=%s' % boundary})
+        else:
+            data = urllib.urlencode(data)
+        return client.request(request.to_url(), method=method,
+                              headers=headers, body=data)
+
     def authenticate(self, username=None, password=None):
         """
+        This is only for the more convoluted three legged approach.
         1. Login into AMO.
         2. Get a request token for the consumer.
         3. Approve the consumer.
@@ -101,6 +122,11 @@ class AMOOAuth:
         """
         # First we need to login to AMO, this takes a few steps.
         # If this was being done in a browser, this wouldn't matter.
+        #
+        # This callback is pretty academic, but required so we can get
+        # verification token.
+        callback = 'http://foo.com/'
+
         opener = urllib2.build_opener(urllib2.HTTPCookieProcessor())
         urllib2.install_opener(opener)
         res = opener.open(self.url('login'))
@@ -118,17 +144,17 @@ class AMOOAuth:
         assert res.code == 200
 
         # We need these headers to be able to post to the authorize method
-        headers = {}
+        cookies = {}
         # Need to find a better way to find the handler, -2 is fragile.
         for cookie in opener.handlers[-2].cookiejar:
             if cookie.name == 'sessionid':
-                headers = {'Cookie': '%s=%s' % (cookie.name, cookie.value)}
+                cookies = {'Cookie': '%s=%s' % (cookie.name, cookie.value)}
         # Step 1 completed, we can now be logged in for any future requests
 
         # Step 2, get a request token.
-        client = oauth.Client(self.get_consumer())
-        resp, content = client.request(self.url('request_token'), "GET")
-        assert resp.status == 200, 'Status was: %s' % resp.status
+        resp, content = self._request(None, 'GET', self.url('request_token'),
+                                      oauth_callback=callback)
+        assert resp['status'] == '200', 'Status was: %s' % resp.status
 
         request_token = dict(parse_qsl(content))
         assert request_token
@@ -136,25 +162,26 @@ class AMOOAuth:
                             request_token['oauth_token_secret'])
 
         # Step 3, authorize the access of this consumer for this user account.
-        client = oauth.Client(self.get_consumer(), token)
-        resp, content = client.request(self.url('authorize'), "GET",
-                                       headers=headers)
-
+        resp, content = self._request(token, 'GET', self.url('authorize'),
+                                      headers=cookies)
         csrf = self.get_csrf(content)
-        data = urllib.urlencode({'authorize_access': True,
-                                 'csrfmiddlewaretoken': csrf})
-        resp, content = client.request(self.url('authorize'), "POST",
-                                       body=data, headers=headers)
-        assert resp.status == 200, 'Status was: %s' % resp.status
+        data = {'authorize_access': True,
+                'csrfmiddlewaretoken': csrf,
+                'oauth_token': token.key}
+        resp, content = self._request(token, 'POST', self.url('authorize'),
+                                      headers=cookies, data=data,
+                                      oauth_callback=callback)
 
-        # Step 4, Now that its authorized, get the access token
-        resp, content = client.request(self.url('access_token'), "GET")
-        assert resp.status == 200, 'Status was: %s' % resp.status
+        assert resp.status == 302, 'Status was: %s' % resp.status
+        verifier = dict(parse_qsl(resp['location'][len(callback)+1:]))['oauth_verifier']
+        token.set_verifier(verifier)
+
+        # We have now authorized the app for this user.
+        resp, content = self._request(token, 'GET', self.url('access_token'))
         access_token = dict(parse_qsl(content))
-
-        # Yay, save token.
         self.data['access_token'] = access_token
         self.save_storage()
+        # Done. Wasn't that fun?
 
     def get_params(self):
         return dict(oauth_consumer_key=self.data['consumer_key'],
@@ -164,26 +191,9 @@ class AMOOAuth:
                     oauth_version='1.0')
 
     def _send(self, url, method, data):
-        if self.protocol == 'https':
-            conn_class = httplib.HTTPSConnection
-        else:
-            conn_class = httplib.HTTPConnection
-        conn = conn_class('%s:%d' % (self.domain, self.port))
-
-        req = oauth.Request(method=method, url=url,
-                            parameters=self.get_params())
-        req.sign_request(oauth.SignatureMethod_HMAC_SHA1(),
-                         self.get_consumer(), self.get_access())
-
-        post_data = encode_multipart(boundary, data)
-        headers = req.to_header()
-        headers.update({'Content-Type':
-                        'multipart/form-data; boundary=%s' % boundary})
-        conn.request(method, self.shorten(url), body=post_data,
-                     headers=headers)
-        response = conn.getresponse()
-        content = response.read()
-        assert 'Register' not in content, 'Authentication failed'
+        resp, content = self._request(None, method, url,
+                                      data=data)
+        assert resp.status == 200
         return json.loads(content)
 
     def get_user(self):
@@ -191,18 +201,15 @@ class AMOOAuth:
 
     def create_addon(self, data):
         # example:
-        # data = {'id': 'sdefsfd', 'name':'sdfsdf', 'text':'sdfsdf',
-        #         'eula':'sdfsdfsdf', 'builtin':0, 'guid': 'sdfsdfsdf',
-        #         'xpi': somexpi}
         return self._send(self.url('addon'), 'POST', data)
 
 
 if __name__ == '__main__':
     username = 'amckay@mozilla.com'
     amo = AMOOAuth(domain="addons.mozilla.local", port=8000, protocol='http')
+    amo.set_consumer(consumer_key='CmAn9KhXR8SD3xUSrf',
+                     consumer_secret='4hPsAW9yCecr4KRSR4DVKanCkgpqDETm')
     if not amo.has_access_token():
         # This is an example, don't get too excited.
-        amo.set_consumer(consumer_key='CmAn9KhXR8SD3xUSrf',
-                         consumer_secret='4hPsAW9yCecr4KRSR4DVKanCkgpqDETm')
         amo.authenticate(username=username)
     print amo.get_user()

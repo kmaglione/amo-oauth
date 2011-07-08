@@ -8,11 +8,21 @@ def to_str(s):
     else:
         return str(s)
 
+def data_keys(data):
+    _data = {}
+    for k, v in data.items():
+        if is_file(v):
+            v = ''
+        _data[to_str(k)] = v
+    return _data
+
+def is_file(thing):
+    return hasattr(thing, "read") and callable(thing.read)
 
 def encode_multipart(boundary, data):
     """Ripped from django."""
     lines = []
-    is_file = lambda thing: hasattr(thing, "read") and callable(thing.read)
+
     for key, value in data.items():
         if is_file(value):
             content_type = mimetypes.guess_type(value.name)[0]
@@ -21,10 +31,10 @@ def encode_multipart(boundary, data):
             lines.extend([
                 '--' + boundary,
                 'Content-Disposition: form-data; name="%s"; filename="%s"' \
-                 % (to_str(key), to_str(os.path.basename(file.name))),
+                 % (to_str(key), to_str(os.path.basename(value.name))),
                 'Content-Type: %s' % content_type,
                 '',
-                file.read(),
+                value.read(),
             ])
         else:
             lines.extend([
