@@ -16,7 +16,6 @@ Step 2: using that consumer key and secret, authenticate your self.
 >>> import amo
 >>> auth = amo.AMOOAuth(domain="addons.mozilla.local", port=8000, protocol='http')
 >>> auth.set_consumer(consumer_key='CmAn9KhXR8SD3xUSrf', consumer_secret='xxx')
->>> auth.authenticate(username='amckay@mozilla.com', password='xxx')
 
 This will store the OAuth credentials in plain text in a ~/.amo-oauth file.
 
