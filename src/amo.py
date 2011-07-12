@@ -25,6 +25,7 @@ urls = {
     'authorize': '/oauth/authorize/',
     'user': '/api/2/user/',
     'addon': '/api/2/addons/',
+    'perf': '/api/2/performance/'
 }
 
 storage_file = os.path.join(os.path.expanduser('~'), '.amo-oauth')
@@ -102,7 +103,6 @@ class AMOOAuth:
                                                  method, url, parameters))
         request.sign_request(self.signature_method, self.get_consumer(), token)
         client = httplib2.Http()
-        headers.update(request.to_header())
         if data and method == 'POST':
             data = encode_multipart(boundary, data)
             headers.update({'Content-Type':
@@ -193,15 +193,21 @@ class AMOOAuth:
     def _send(self, url, method, data):
         resp, content = self._request(None, method, url,
                                       data=data)
-        assert resp.status == 200
-        return json.loads(content)
+        if resp.status != 200:
+            raise ValueError('%s: %s' % (resp.status, content))
+        try:
+            return json.loads(content)
+        except ValueError:
+            return content
 
     def get_user(self):
         return self._send(self.url('user'), 'GET', {})
 
     def create_addon(self, data):
-        # example:
         return self._send(self.url('addon'), 'POST', data)
+
+    def create_perf(self, data):
+        return self._send(self.url('perf'), 'POST', data)
 
 
 if __name__ == '__main__':
