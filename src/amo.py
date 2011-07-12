@@ -6,7 +6,6 @@ Ripped off from Daves test_oauth.py and some notes from python-oauth2
 import urllib
 import urllib2
 from urlparse import urlparse, urlunparse, parse_qsl
-import httplib
 import httplib2
 import oauth2 as oauth
 import os
@@ -25,13 +24,14 @@ urls = {
     'authorize': '/oauth/authorize/',
     'user': '/api/2/user/',
     'addon': '/api/2/addons/',
-    'perf': '/api/2/performance/'
+    'perf': '/api/2/performance/',
 }
 
 storage_file = os.path.join(os.path.expanduser('~'), '.amo-oauth')
 boundary = mimetools.choose_boundary()
 
 old = httplib2.Http.__init__
+
 
 # Ouch, I'll go to hell for this.
 def hack(self, **kw):
@@ -173,7 +173,8 @@ class AMOOAuth:
                                       oauth_callback=callback)
 
         assert resp.status == 302, 'Status was: %s' % resp.status
-        verifier = dict(parse_qsl(resp['location'][len(callback)+1:]))['oauth_verifier']
+        qsl = parse_qsl(resp['location'][len(callback) + 1:])
+        verifier = dict(qsl)['oauth_verifier']
         token.set_verifier(verifier)
 
         # We have now authorized the app for this user.
