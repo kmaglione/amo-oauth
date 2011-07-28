@@ -80,9 +80,13 @@ class AMOOAuth:
                 pass
         return {}
 
-    def url(self, key):
+    def url(self, key, *args):
+        args = '/'.join([str(a) for a in args])
+        if args:
+            args = '%s' % args
         return urlunparse((self.protocol, '%s:%s' % (self.domain, self.port),
-                           '%s/en-US/firefox%s' % (self.prefix, urls[key]),
+                           '%s/en-US/firefox%s%s' %
+                           (self.prefix, urls[key], args),
                            '', '', ''))
 
     def shorten(self, url):
@@ -103,7 +107,7 @@ class AMOOAuth:
                                                  method, url, parameters))
         request.sign_request(self.signature_method, self.get_consumer(), token)
         client = httplib2.Http()
-        if data and method == 'POST':
+        if data and method in ['POST', 'PUT']:
             data = encode_multipart(boundary, data)
             headers.update({'Content-Type':
                             'multipart/form-data; boundary=%s' % boundary})
@@ -194,7 +198,7 @@ class AMOOAuth:
     def _send(self, url, method, data):
         resp, content = self._request(None, method, url,
                                       data=data)
-        if resp.status != 200:
+        if resp.status not in [200, 201]:
             raise ValueError('%s: %s' % (resp.status, content))
         try:
             return json.loads(content)
@@ -210,6 +214,8 @@ class AMOOAuth:
     def create_perf(self, data):
         return self._send(self.url('perf'), 'POST', data)
 
+    def update_perf(self, data, addon_id):
+        return self._send(self.url('perf', addon_id), 'PUT', data)
 
 if __name__ == '__main__':
     username = 'amckay@mozilla.com'
