@@ -25,6 +25,8 @@ urls = {
     'user': '/api/2/user/',
     'addon': '/api/2/addons/',
     'perf': '/api/2/performance/',
+    'perf_os': '/api/2/performance/os/',
+    'perf_app': '/api/2/performance/app/',
 }
 
 storage_file = os.path.join(os.path.expanduser('~'), '.amo-oauth')
@@ -216,6 +218,26 @@ class AMOOAuth:
 
     def update_perf(self, data, addon_id):
         return self._send(self.url('perf', addon_id), 'PUT', data)
+
+    # TODO(andym): something more funky with getattr, this could get boring
+    def create_app(self, data):
+        return self._send(self.url('perf_app'), 'POST', data)
+
+    def update_app(self, data, id):
+        return self._send(self.url('perf_app', id), 'PUT', data)
+
+    def list_app(self):
+        return self._send(self.url('perf_app'), 'GET', {})
+
+    def create_os(self, data):
+        return self._send(self.url('perf_os'), 'POST', data)
+
+    def update_os(self, data, id):
+        return self._send(self.url('perf_os', id), 'PUT', data)
+
+    def list_os(self):
+        return self._send(self.url('perf_os'), 'GET', {})
+
 
 if __name__ == '__main__':
     username = 'amckay@mozilla.com'
