@@ -216,8 +216,8 @@ class AMOOAuth:
     def create_perf(self, data):
         return self._send(self.url('perf'), 'POST', data)
 
-    def update_perf(self, data, addon_id):
-        return self._send(self.url('perf', addon_id), 'PUT', data)
+    def update_perf(self, data, id):
+        return self._send(self.url('perf', id), 'PUT', data)
 
     # TODO(andym): something more funky with getattr, this could get boring
     def create_app(self, data):
