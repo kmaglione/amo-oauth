@@ -24,6 +24,8 @@ urls = {
     'authorize': '/oauth/authorize/',
     'user': '/api/2/user/',
     'addon': '/api/2/addons/',
+    'apps': '/api/2/apps/',
+    'app': '/api/2/app/%s',
     'versions': '/api/2/addon/%s/versions',
     'version': '/api/2/addon/%s/version/%s',
     'perf': '/api/2/performance/add',
@@ -212,6 +214,12 @@ class AMOOAuth:
 
     def create_addon(self, data):
         return self._send(self.url('addon'), 'POST', data)
+
+    def create_app(self, data):
+        return self._send(self.url('apps'), 'POST', data)
+
+    def get_app(self, id):
+        return self._send(self.url('app') % id, 'GET', {})
 
     def create_version(self, data, id):
         return self._send(self.url('version') % id, 'POST', data)
