@@ -11,11 +11,14 @@ the moment this requires admin access, so ask your friendly AMO contact.
 Step 2: using that consumer key and secret...
 
 >>> from amo import AMOOAuth
->>> amo = AMOOAuth(domain="addons.allizom.org", port=443, protocol='https',
-                   prefix='/z')
->>> amo.set_consumer(consumer_key='xxx',
-                     consumer_secret='xxx')
->>> amo.get_user()
+>>> amo = AMOOAuth(	domain="addons-dev.allizom.org", 
+				port=443, 
+				protocol='https')
+
+>>> amo.set_consumer(consumer_key='XXX',
+                 consumer_secret='XXX')
+
+>>> print amo.get_user()
 {u'email': u'amckay@mozilla.com'}
 
 Notes:
