@@ -222,7 +222,7 @@ class AMOOAuth:
         return self._send(self.url('app') % id, 'GET', {})
 
     def create_version(self, data, id):
-        return self._send(self.url('version') % id, 'POST', data)
+        return self._send(self.url('versions') % id, 'POST', data)
 
     def get_versions(self, addon_id):
         return self._send(self.url('versions') % addon_id, 'GET', {})
