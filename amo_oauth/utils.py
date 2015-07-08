@@ -12,7 +12,7 @@ def data_keys(data):
     _data = {}
     for k, v in data.items():
         if is_file(v):
-            v = ''
+            v = v.read()
         _data[to_str(k)] = v
     return _data
 
